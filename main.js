@@ -114,7 +114,14 @@ function main() {
       return;
     }
 
-    const calendar = CalendarApp.getDefaultCalendar();
+    let calendar = null;
+    const calendars = CalendarApp.getCalendarsByName('競馬');
+    if (calendars.length > 0) {
+      calendar = calendars[0];
+    } else {
+      Logger.log("エラー: 『競馬』 という名前のカレンダーが見つかりません。");
+      return;
+    }
 
     g1Races.forEach(race => {
       // 1. レース当日（15:10 〜 16:00）
@@ -171,7 +178,14 @@ function createEventIfNotExists(calendar, title, startTime, endTime, location) {
 
 
 function deleteJraEvents() {
-  const calendar = CalendarApp.getDefaultCalendar();
+  let calendar = null;
+  const calendars = CalendarApp.getCalendarsByName('競馬');
+  if (calendars.length > 0) {
+    calendar = calendars[0];
+  } else {
+    console.log("エラー: 『競馬』 という名前のカレンダーが見つかりません。");
+    return;
+  }
   const startTime = new Date('2026/03/01');
   const endTime = new Date('2026/12/31');
 
