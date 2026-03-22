@@ -1,5 +1,6 @@
 function main() {
   const year = new Date().getFullYear();
+  // 指定されたURL
   const url = `https://www.jra.go.jp/datafile/seiseki/replay/${year}/g1.html`;
   
   try {
@@ -8,84 +9,148 @@ function main() {
       Logger.log("HTTP Error Ocurred: " + response.getResponseCode());
       return;
     }
-    const html = response.getContentText('Shift_JIS'); // JRA HTML corresponds to Shift_JIS
+    // 文字コード指定で取得
+    const html = response.getContentText('Shift_JIS');
     
-    const rowRegex = /<tr>([\s\S]*?)<\/tr>/g;
-    let match;
+    // HTMLの一部を出力（デバッグ用）
+    Logger.log("===== HTML Source (First 500 chars) =====");
+    Logger.log(html.substring(0, 500));
+    Logger.log("=========================================");
+    
     const g1Races = [];
     
-    while ((match = rowRegex.exec(html)) !== null) {
-      const rowHtml = match[1];
-      if (rowHtml.includes('GⅠ') || rowHtml.includes('J・GⅠ')) {
-        // Extract date
-        const dateMatch = rowHtml.match(/<td[^>]*>\s*(\d{1,2}月\d{1,2}日)[\s\S]*?<\/td>/) || rowHtml.match(/<td[^>]*date[^>]*>([\s\S]*?)<\/td>/);
-        let dateStr = "";
+    // tableごとに分割して解析
+    const tables = html.split(/<table/i);
+    for (let i = 1; i < tables.length; i++) {
+      const tableHtml = tables[i];
+      
+      // captionタグの抽出 (もしテーブルごとにcaptionがある場合)
+      let captionRaceName = null;
+      const captionMatch = tableHtml.match(/<caption[^>]*>([\s\S]*?)<\/caption>/i);
+      if (captionMatch) {
+        let raw = captionMatch[1].replace(/<[^>]+>/g, "").trim();
+        raw = raw.replace(/^第\d+回\s*/, "").replace(/（.*GⅠ.*）|（.*J・GⅠ.*）/g, "").trim();
+        // 「一覧」などのページタイトルでない場合のみ採用
+        if (raw.length > 0 && raw.length < 30 && !raw.includes("一覧")) {
+           captionRaceName = raw;
+        }
+      }
+      
+      // tr (行) ごとに td タグをパース
+      const rows = tableHtml.split(/<tr/i);
+      for (let j = 1; j < rows.length; j++) {
+        const rowHtml = rows[j];
+        let rowRaceName = null;
+        let dateStr = null;
+        
+        // 開催日の抽出 (\d月\d日 のパターン)
+        const dateMatch = rowHtml.match(/<td[^>]*>(?:[\s\S]*?)?(\d{1,2}月\d{1,2}日)(?:[\s\S]*?)?<\/td>/i);
         if (dateMatch) {
-            dateStr = dateMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, "");
-            const extracted = dateStr.match(/\d{1,2}月\d{1,2}日/);
-            if (extracted) {
-              dateStr = extracted[0];
-            } else {
-              dateStr = "";
+           dateStr = dateMatch[1];
+        }
+        
+        // レース名の抽出 (aタグや、直接テキストから)
+        const aMatch = rowHtml.match(/<a[^>]*>([^<]+)<\/a>/i);
+        if (aMatch) {
+           let aText = aMatch[1].trim();
+           // 余計な改行やタグを除去
+           aText = aText.replace(/<[^>]+>/g, "").trim();
+           // ある程度レース名っぽいものを抽出（関係ないリンクを弾くため）
+           if (rowHtml.includes('GⅠ') || rowHtml.includes('J・GⅠ') || aText.match(/記念|杯|賞|ステークス|オークス|ダービー|チャンピオンシップ|マイル|スプリント|ジュベナイル|フューチュリティ|ホープフル/)) {
+               rowRaceName = aText;
+           }
+        }
+        
+        // aタグがなくても GⅠ というテキストがあるtdを探す
+        if (!rowRaceName && (rowHtml.includes('GⅠ') || rowHtml.includes('J・GⅠ'))) {
+            // thやtdの中身をさらって一番長いテキストをレース名とみなすなどの汎用処理
+            const tdMatch = rowHtml.match(/<t[dh][^>]*>([\s\S]*?(?:GⅠ|J・GⅠ)[\s\S]*?)<\/t[dh]>/i);
+            if(tdMatch) {
+                let text = tdMatch[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+                let splitG1 = text.split(/GⅠ|J・GⅠ/);
+                if(splitG1.length > 1 && splitG1[1].trim() !== "") {
+                    rowRaceName = splitG1[1].trim().split(" ")[0]; // 最初の単語
+                }
             }
         }
         
-        // Extract race name
-        const raceMatch = rowHtml.match(/<a[^>]*>(.*?)<\/a>/);
-        let raceName = "";
-        if (raceMatch) {
-            raceName = raceMatch[1].trim();
-        }
-        
-        if (dateStr && raceName) {
-            const month = parseInt(dateStr.match(/(\d+)月/)[1], 10);
-            const day = parseInt(dateStr.match(/(\d+)日/)[1], 10);
-            const raceDate = new Date(year, month - 1, day);
-            
-            g1Races.push({ name: raceName, date: raceDate });
+        // captionとrowで見つかった名前を統合
+        let finalName = rowRaceName || captionRaceName;
+        if (finalName && dateStr) {
+           finalName = finalName.replace(/<[^>]+>/g, "").replace(/^第\d+回\s*/, "").replace(/（.*GⅠ.*）|（.*J・GⅠ.*）/g, "").trim();
+           
+           const month = parseInt(dateStr.split("月")[0], 10);
+           const day = parseInt(dateStr.split("月")[1].split("日")[0], 10);
+           
+           if (!g1Races.find(r => r.name === finalName)) {
+              g1Races.push({
+                 name: finalName,
+                 date: new Date(year, month - 1, day)
+              });
+              Logger.log(`[抽出成功] レース名: ${finalName}, 開催日: ${dateStr}`);
+           }
         }
       }
     }
     
-    Logger.log("Found " + g1Races.length + " G1 races.");
+    Logger.log(`合計 ${g1Races.length} 件のG1レースが見つかりました。`);
     if (g1Races.length === 0) {
-      Logger.log("No races found. The layout may have changed.");
+      Logger.log("抽出件数が0件です。対象ページのHTML構造が変わった可能性があります。");
       return;
     }
     
     const calendar = CalendarApp.getDefaultCalendar();
     
     g1Races.forEach(race => {
-      // Advance Lottery (先行抽選): 2 weeks before the race, Friday 12:00.
+      // 1. レース当日（終日予定）
+      const raceDayTitle = `[競馬G1] ${race.name}`;
+      createAllDayEventIfNotExists(calendar, raceDayTitle, race.date);
+
+      // 2. 2週前の金曜 12:00（先行抽選）
       const advanceLotteryDate = new Date(race.date);
-      advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 14); // 2 weeks back
-      while(advanceLotteryDate.getDay() !== 5) {
+      advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 14); // 2週間前
+      while(advanceLotteryDate.getDay() !== 5) { // 金曜日
         advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 1);
       }
       advanceLotteryDate.setHours(12, 0, 0, 0);
+      const advanceTitle = `[先行抽選] ${race.name}`;
+      createEventIfNotExists(calendar, advanceTitle, advanceLotteryDate);
       
-      // General Lottery (一般抽選): 1 week before the race, Tuesday 18:00.
+      // 3. 1週前の火曜 18:00（一般抽選）
       const generalLotteryDate = new Date(race.date);
-      generalLotteryDate.setDate(generalLotteryDate.getDate() - 7); // 1 week back
-      while(generalLotteryDate.getDay() !== 2) {
+      generalLotteryDate.setDate(generalLotteryDate.getDate() - 7); // 1週間前
+      while(generalLotteryDate.getDay() !== 2) { // 火曜日
         generalLotteryDate.setDate(generalLotteryDate.getDate() - 1);
       }
       generalLotteryDate.setHours(18, 0, 0, 0);
-      
-      createEventIfNotExists(calendar, `[先行抽選] ${race.name}`, advanceLotteryDate);
-      createEventIfNotExists(calendar, `[一般抽選] ${race.name}`, generalLotteryDate);
+      const generalTitle = `[一般抽選] ${race.name}`;
+      createEventIfNotExists(calendar, generalTitle, generalLotteryDate);
     });
     
   } catch(e) {
-    Logger.log("Error: " + e.message);
+    Logger.log("Error Ocurred: " + e.message);
   }
 }
 
+// 終日予定作成 (重複防止)
+function createAllDayEventIfNotExists(calendar, title, raceDate) {
+  const events = calendar.getEventsForDay(raceDate, {search: title});
+  if (events.length === 0) {
+    calendar.createAllDayEvent(title, raceDate);
+    Logger.log(`  [登録] 終日予定: ${title} (${Utilities.formatDate(raceDate, "Asia/Tokyo", "yyyy/MM/dd")})`);
+  } else {
+    Logger.log(`  [スキップ] 終日予定済: ${title}`);
+  }
+}
+
+// 時間指定予定作成 (重複防止)
 function createEventIfNotExists(calendar, title, startTime) {
-  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour duration
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1時間
   const events = calendar.getEvents(startTime, endTime, {search: title});
   if (events.length === 0) {
     calendar.createEvent(title, startTime, endTime);
-    // Logger.log("Created event: " + title + " at " + startTime);
+    Logger.log(`  [登録] 予定: ${title} (${Utilities.formatDate(startTime, "Asia/Tokyo", "MM/dd HH:mm")})`);
+  } else {
+    Logger.log(`  [スキップ] 登録済: ${title}`);
   }
 }
