@@ -117,9 +117,13 @@ function main() {
     const calendar = CalendarApp.getDefaultCalendar();
 
     g1Races.forEach(race => {
-      // 1. レース当日（終日予定）
+      // 1. レース当日（15:10 〜 16:00）
+      const raceStartTime = new Date(race.date);
+      raceStartTime.setHours(15, 10, 0, 0);
+      const raceEndTime = new Date(race.date);
+      raceEndTime.setHours(16, 0, 0, 0);
       const raceDayTitle = race.name;
-      createAllDayEventIfNotExists(calendar, raceDayTitle, race.date, race.location);
+      createEventIfNotExists(calendar, raceDayTitle, raceStartTime, raceEndTime, race.location);
 
       /*
       // 2. 2週前の金曜 12:00（先行抽選） - コメントアウト
@@ -140,8 +144,9 @@ function main() {
         generalLotteryDate.setDate(generalLotteryDate.getDate() - 1);
       }
       generalLotteryDate.setHours(18, 0, 0, 0);
+      const generalEndTime = new Date(generalLotteryDate.getTime() + 60 * 60 * 1000); // 1時間
       const generalTitle = `一般抽選：${race.name}`;
-      createEventIfNotExists(calendar, generalTitle, generalLotteryDate, race.location);
+      createEventIfNotExists(calendar, generalTitle, generalLotteryDate, generalEndTime, race.location);
     });
 
   } catch (e) {
@@ -149,24 +154,8 @@ function main() {
   }
 }
 
-// 終日予定作成 (重複防止)
-function createAllDayEventIfNotExists(calendar, title, raceDate, location) {
-  const events = calendar.getEventsForDay(raceDate, { search: title });
-  if (events.length === 0) {
-    const options = location ? { location: location } : {};
-    const event = calendar.createAllDayEvent(title, raceDate, options);
-    event.setColor('10');
-    Logger.log(`  [登録] 終日予定: ${title} (${Utilities.formatDate(raceDate, "Asia/Tokyo", "yyyy/MM/dd")}) 場所: ${location || ""}`);
-  } else {
-    events[0].setColor('10');
-    if (location) events[0].setLocation(location);
-    Logger.log(`  [スキップ・更新] 終日予定済: ${title}`);
-  }
-}
-
 // 時間指定予定作成 (重複防止)
-function createEventIfNotExists(calendar, title, startTime, location) {
-  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1時間
+function createEventIfNotExists(calendar, title, startTime, endTime, location) {
   const events = calendar.getEvents(startTime, endTime, { search: title });
   if (events.length === 0) {
     const options = location ? { location: location } : {};
@@ -179,6 +168,7 @@ function createEventIfNotExists(calendar, title, startTime, location) {
     Logger.log(`  [スキップ・更新] 登録済: ${title}`);
   }
 }
+
 
 function deleteJraEvents() {
   const calendar = CalendarApp.getDefaultCalendar();
