@@ -106,7 +106,8 @@ function main() {
       const raceDayTitle = `[競馬G1] ${race.name}`;
       createAllDayEventIfNotExists(calendar, raceDayTitle, race.date);
 
-      // 2. 2週前の金曜 12:00（先行抽選）
+      // 2. 2週前の金曜 12:00（先行抽選） - コメントアウト
+      /*
       const advanceLotteryDate = new Date(race.date);
       advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 14); // 2週間前
       while(advanceLotteryDate.getDay() !== 5) { // 金曜日
@@ -115,6 +116,7 @@ function main() {
       advanceLotteryDate.setHours(12, 0, 0, 0);
       const advanceTitle = `[先行抽選] ${race.name}`;
       createEventIfNotExists(calendar, advanceTitle, advanceLotteryDate);
+      */
       
       // 3. 1週前の火曜 18:00（一般抽選）
       const generalLotteryDate = new Date(race.date);
