@@ -42,6 +42,7 @@ function main() {
         const rowHtml = rows[j];
         let rowRaceName = null;
         let dateStr = null;
+        let venue = null;
 
         // 開催日の抽出 (\d月\d日 のパターン)
         const dateMatch = rowHtml.match(/<td[^>]*>(?:[\s\S]*?)?(\d{1,2}月\d{1,2}日)(?:[\s\S]*?)?<\/td>/i);
@@ -74,6 +75,19 @@ function main() {
           }
         }
 
+        // 競馬場の抽出
+        const tdTexts = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
+        if (tdTexts) {
+          for (let td of tdTexts) {
+            const text = td.replace(/<[^>]+>/g, "").trim();
+            const vMatch = text.match(/^(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)$/);
+            if (vMatch) {
+              venue = vMatch[1] + "競馬場";
+              break;
+            }
+          }
+        }
+
         // captionとrowで見つかった名前を統合
         let finalName = rowRaceName || captionRaceName;
         if (finalName && dateStr) {
@@ -85,9 +99,10 @@ function main() {
           if (!g1Races.find(r => r.name === finalName)) {
             g1Races.push({
               name: finalName,
-              date: new Date(year, month - 1, day)
+              date: new Date(year, month - 1, day),
+              location: venue || ""
             });
-            Logger.log(`[抽出成功] レース名: ${finalName}, 開催日: ${dateStr}`);
+            Logger.log(`[抽出成功] レース名: ${finalName}, 開催日: ${dateStr}, 場所: ${venue || "不明"}`);
           }
         }
       }
@@ -104,18 +119,18 @@ function main() {
     g1Races.forEach(race => {
       // 1. レース当日（終日予定）
       const raceDayTitle = race.name;
-      createAllDayEventIfNotExists(calendar, raceDayTitle, race.date);
+      createAllDayEventIfNotExists(calendar, raceDayTitle, race.date, race.location);
 
-      // 2. 2週前の金曜 12:00（先行抽選） - コメントアウト
       /*
+      // 2. 2週前の金曜 12:00（先行抽選） - コメントアウト
       const advanceLotteryDate = new Date(race.date);
       advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 14); // 2週間前
       while(advanceLotteryDate.getDay() !== 5) { // 金曜日
         advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 1);
       }
       advanceLotteryDate.setHours(12, 0, 0, 0);
-      const advanceTitle = `[先行抽選] ${race.name}`;
-      createEventIfNotExists(calendar, advanceTitle, advanceLotteryDate);
+      const advanceTitle = `先行抽選：${race.name}`;
+      createEventIfNotExists(calendar, advanceTitle, advanceLotteryDate, race.location);
       */
 
       // 3. 1週前の火曜 18:00（一般抽選）
@@ -126,7 +141,7 @@ function main() {
       }
       generalLotteryDate.setHours(18, 0, 0, 0);
       const generalTitle = `一般抽選：${race.name}`;
-      createEventIfNotExists(calendar, generalTitle, generalLotteryDate);
+      createEventIfNotExists(calendar, generalTitle, generalLotteryDate, race.location);
     });
 
   } catch (e) {
@@ -135,29 +150,33 @@ function main() {
 }
 
 // 終日予定作成 (重複防止)
-function createAllDayEventIfNotExists(calendar, title, raceDate) {
+function createAllDayEventIfNotExists(calendar, title, raceDate, location) {
   const events = calendar.getEventsForDay(raceDate, { search: title });
   if (events.length === 0) {
-    const event = calendar.createAllDayEvent(title, raceDate);
+    const options = location ? { location: location } : {};
+    const event = calendar.createAllDayEvent(title, raceDate, options);
     event.setColor('10');
-    Logger.log(`  [登録] 終日予定: ${title} (${Utilities.formatDate(raceDate, "Asia/Tokyo", "yyyy/MM/dd")})`);
+    Logger.log(`  [登録] 終日予定: ${title} (${Utilities.formatDate(raceDate, "Asia/Tokyo", "yyyy/MM/dd")}) 場所: ${location || ""}`);
   } else {
     events[0].setColor('10');
-    Logger.log(`  [スキップ・色更新] 終日予定済: ${title}`);
+    if (location) events[0].setLocation(location);
+    Logger.log(`  [スキップ・更新] 終日予定済: ${title}`);
   }
 }
 
 // 時間指定予定作成 (重複防止)
-function createEventIfNotExists(calendar, title, startTime) {
+function createEventIfNotExists(calendar, title, startTime, location) {
   const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1時間
   const events = calendar.getEvents(startTime, endTime, { search: title });
   if (events.length === 0) {
-    const event = calendar.createEvent(title, startTime, endTime);
+    const options = location ? { location: location } : {};
+    const event = calendar.createEvent(title, startTime, endTime, options);
     event.setColor('10');
-    Logger.log(`  [登録] 予定: ${title} (${Utilities.formatDate(startTime, "Asia/Tokyo", "MM/dd HH:mm")})`);
+    Logger.log(`  [登録] 予定: ${title} (${Utilities.formatDate(startTime, "Asia/Tokyo", "MM/dd HH:mm")}) 場所: ${location || ""}`);
   } else {
     events[0].setColor('10');
-    Logger.log(`  [スキップ・色更新] 登録済: ${title}`);
+    if (location) events[0].setLocation(location);
+    Logger.log(`  [スキップ・更新] 登録済: ${title}`);
   }
 }
 
