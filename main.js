@@ -1,206 +1,153 @@
-function main() {
-  const year = new Date().getFullYear();
-  // 指定されたURL
-  const url = `https://www.jra.go.jp/datafile/seiseki/replay/${year}/g1.html`;
+/**
+ * 2026 JRA G1 Schedule -> Google Calendar
+ * Start: 15:10 / Color: Basil (10) / Lottery: 1 week prior Sunday
+ */
 
-  try {
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) {
-      Logger.log("HTTP Error Ocurred: " + response.getResponseCode());
-      return;
-    }
-    // 文字コード指定で取得
-    const html = response.getContentText('Shift_JIS');
+var CALENDAR_ID = 'de5893d84b93f0ff8895765e3a714793e664c94b376c452bea62a04d807f429d@group.calendar.google.com';
+var COLOR_BASIL = '10';
 
-    // HTMLの一部を出力（デバッグ用）
-    Logger.log("===== HTML Source (First 500 chars) =====");
-    Logger.log(html.substring(0, 500));
-    Logger.log("=========================================");
-
-    const g1Races = [];
-
-    // tableごとに分割して解析
-    const tables = html.split(/<table/i);
-    for (let i = 1; i < tables.length; i++) {
-      const tableHtml = tables[i];
-
-      // captionタグの抽出 (もしテーブルごとにcaptionがある場合)
-      let captionRaceName = null;
-      const captionMatch = tableHtml.match(/<caption[^>]*>([\s\S]*?)<\/caption>/i);
-      if (captionMatch) {
-        let raw = captionMatch[1].replace(/<[^>]+>/g, "").trim();
-        raw = raw.replace(/^第\d+回\s*/, "").replace(/（.*GⅠ.*）|（.*J・GⅠ.*）/g, "").trim();
-        // 「一覧」などのページタイトルでない場合のみ採用
-        if (raw.length > 0 && raw.length < 30 && !raw.includes("一覧")) {
-          captionRaceName = raw;
-        }
-      }
-
-      // tr (行) ごとに td タグをパース
-      const rows = tableHtml.split(/<tr/i);
-      for (let j = 1; j < rows.length; j++) {
-        const rowHtml = rows[j];
-        let rowRaceName = null;
-        let dateStr = null;
-        let venue = null;
-
-        // 開催日の抽出 (\d月\d日 のパターン)
-        const dateMatch = rowHtml.match(/<td[^>]*>(?:[\s\S]*?)?(\d{1,2}月\d{1,2}日)(?:[\s\S]*?)?<\/td>/i);
-        if (dateMatch) {
-          dateStr = dateMatch[1];
-        }
-
-        // レース名の抽出 (aタグや、直接テキストから)
-        const aMatch = rowHtml.match(/<a[^>]*>([^<]+)<\/a>/i);
-        if (aMatch) {
-          let aText = aMatch[1].trim();
-          // 余計な改行やタグを除去
-          aText = aText.replace(/<[^>]+>/g, "").trim();
-          // ある程度レース名っぽいものを抽出（関係ないリンクを弾くため）
-          if (rowHtml.includes('GⅠ') || rowHtml.includes('J・GⅠ') || aText.match(/記念|杯|賞|ステークス|オークス|ダービー|チャンピオンシップ|マイル|スプリント|ジュベナイル|フューチュリティ|ホープフル/)) {
-            rowRaceName = aText;
-          }
-        }
-
-        // aタグがなくても GⅠ というテキストがあるtdを探す
-        if (!rowRaceName && (rowHtml.includes('GⅠ') || rowHtml.includes('J・GⅠ'))) {
-          // thやtdの中身をさらって一番長いテキストをレース名とみなすなどの汎用処理
-          const tdMatch = rowHtml.match(/<t[dh][^>]*>([\s\S]*?(?:GⅠ|J・GⅠ)[\s\S]*?)<\/t[dh]>/i);
-          if (tdMatch) {
-            let text = tdMatch[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-            let splitG1 = text.split(/GⅠ|J・GⅠ/);
-            if (splitG1.length > 1 && splitG1[1].trim() !== "") {
-              rowRaceName = splitG1[1].trim().split(" ")[0]; // 最初の単語
-            }
-          }
-        }
-
-        // 競馬場の抽出
-        const tdTexts = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
-        if (tdTexts) {
-          for (let td of tdTexts) {
-            const text = td.replace(/<[^>]+>/g, "").trim();
-            const vMatch = text.match(/^(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)$/);
-            if (vMatch) {
-              venue = vMatch[1] + "競馬場";
-              break;
-            }
-          }
-        }
-
-        // captionとrowで見つかった名前を統合
-        let finalName = rowRaceName || captionRaceName;
-        if (finalName && dateStr) {
-          finalName = finalName.replace(/<[^>]+>/g, "").replace(/^第\d+回\s*/, "").replace(/（.*GⅠ.*）|（.*J・GⅠ.*）/g, "").trim();
-
-          const month = parseInt(dateStr.split("月")[0], 10);
-          const day = parseInt(dateStr.split("月")[1].split("日")[0], 10);
-
-          if (!g1Races.find(r => r.name === finalName)) {
-            g1Races.push({
-              name: finalName,
-              date: new Date(year, month - 1, day),
-              location: venue || ""
-            });
-            Logger.log(`[抽出成功] レース名: ${finalName}, 開催日: ${dateStr}, 場所: ${venue || "不明"}`);
-          }
-        }
-      }
-    }
-
-    Logger.log(`合計 ${g1Races.length} 件のG1レースが見つかりました。`);
-    if (g1Races.length === 0) {
-      Logger.log("抽出件数が0件です。対象ページのHTML構造が変わった可能性があります。");
-      return;
-    }
-
-    let calendar = null;
-    const calendars = CalendarApp.getCalendarsByName('競馬');
-    if (calendars.length > 0) {
-      calendar = calendars[0];
-    } else {
-      Logger.log("エラー: 『競馬』 という名前のカレンダーが見つかりません。");
-      return;
-    }
-
-    g1Races.forEach(race => {
-      // 1. レース当日（15:10 〜 16:00）
-      const raceStartTime = new Date(race.date);
-      raceStartTime.setHours(15, 10, 0, 0);
-      const raceEndTime = new Date(race.date);
-      raceEndTime.setHours(16, 0, 0, 0);
-      const raceDayTitle = race.name;
-      createEventIfNotExists(calendar, raceDayTitle, raceStartTime, raceEndTime, race.location);
-
-      /*
-      // 2. 2週前の金曜 12:00（先行抽選） - コメントアウト
-      const advanceLotteryDate = new Date(race.date);
-      advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 14); // 2週間前
-      while(advanceLotteryDate.getDay() !== 5) { // 金曜日
-        advanceLotteryDate.setDate(advanceLotteryDate.getDate() - 1);
-      }
-      advanceLotteryDate.setHours(12, 0, 0, 0);
-      const advanceTitle = `先行抽選：${race.name}`;
-      createEventIfNotExists(calendar, advanceTitle, advanceLotteryDate, race.location);
-      */
-
-      // 3. 1週前の火曜 18:00（一般抽選）
-      const generalLotteryDate = new Date(race.date);
-      generalLotteryDate.setDate(generalLotteryDate.getDate() - 7); // 1週間前
-      while (generalLotteryDate.getDay() !== 2) { // 火曜日
-        generalLotteryDate.setDate(generalLotteryDate.getDate() - 1);
-      }
-      generalLotteryDate.setHours(18, 0, 0, 0);
-      const generalEndTime = new Date(generalLotteryDate.getTime() + 60 * 60 * 1000); // 1時間
-      const generalTitle = `一般抽選：${race.name}`;
-      createEventIfNotExists(calendar, generalTitle, generalLotteryDate, generalEndTime, race.location);
-    });
-
-  } catch (e) {
-    Logger.log("Error Ocurred: " + e.message);
-  }
+function getG1Races2026() {
+  return [
+    { name: 'フェブラリーステークス', date: '2026-02-22', venue: '東京競馬場' },
+    { name: '高松宮記念', date: '2026-03-29', venue: '中京競馬場' },
+    { name: '大阪杯', date: '2026-04-05', venue: '阪神競馬場' },
+    { name: '桜花賞', date: '2026-04-12', venue: '阪神競馬場' },
+    { name: '皐月賞', date: '2026-04-19', venue: '中山競馬場' },
+    { name: '天皇賞（春）', date: '2026-05-03', venue: '京都競馬場' },
+    { name: 'NHKマイルカップ', date: '2026-05-10', venue: '東京競馬場' },
+    { name: 'ヴィクトリアマイル', date: '2026-05-17', venue: '東京競馬場' },
+    { name: '優駿牝馬（オークス）', date: '2026-05-24', venue: '東京競馬場' },
+    { name: '東京優駿（日本ダービー）', date: '2026-05-31', venue: '東京競馬場' },
+    { name: '安田記念', date: '2026-06-07', venue: '東京競馬場' },
+    { name: '宝塚記念', date: '2026-06-14', venue: '阪神競馬場' },
+    { name: 'スプリンターズステークス', date: '2026-09-27', venue: '中山競馬場' },
+    { name: '秋華賞', date: '2026-10-18', venue: '京都競馬場' },
+    { name: '菊花賞', date: '2026-10-25', venue: '京都競馬場' },
+    { name: '天皇賞（秋）', date: '2026-11-01', venue: '東京競馬場' },
+    { name: 'エリザベス女王杯', date: '2026-11-15', venue: '京都競馬場' },
+    { name: 'マイルチャンピオンシップ', date: '2026-11-22', venue: '京都競馬場' },
+    { name: 'ジャパンカップ', date: '2026-11-29', venue: '東京競馬場' },
+    { name: 'チャンピオンズカップ', date: '2026-12-06', venue: '中京競馬場' },
+    { name: '阪神ジュベナイルフィリーズ', date: '2026-12-13', venue: '阪神競馬場' },
+    { name: '朝日杯フューチュリティステークス', date: '2026-12-20', venue: '阪神競馬場' },
+    { name: 'ホープフルステークス', date: '2026-12-26', venue: '中山競馬場' },
+    { name: '有馬記念', date: '2026-12-27', venue: '中山競馬場' }
+  ];
 }
 
-// 時間指定予定作成 (重複防止)
-function createEventIfNotExists(calendar, title, startTime, endTime, location) {
-  const events = calendar.getEvents(startTime, endTime, { search: title });
-  if (events.length === 0) {
-    const options = location ? { location: location } : {};
-    const event = calendar.createEvent(title, startTime, endTime, options);
-    event.setColor('10');
-    Logger.log(`  [登録] 予定: ${title} (${Utilities.formatDate(startTime, "Asia/Tokyo", "MM/dd HH:mm")}) 場所: ${location || ""}`);
-  } else {
-    events[0].setColor('10');
-    if (location) events[0].setLocation(location);
-    Logger.log(`  [スキップ・更新] 登録済: ${title}`);
-  }
+function parseDate(dateStr) {
+  var parts = dateStr.split('-');
+  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
 }
 
+function getLotteryDate(raceDate) {
+  var d = new Date(raceDate.getTime());
+  d.setDate(d.getDate() - 7);
+  var day = d.getDay();
+  if (day !== 0) {
+    d.setDate(d.getDate() - day);
+  }
+  return d;
+}
 
-function deleteJraEvents() {
-  let calendar = null;
-  const calendars = CalendarApp.getCalendarsByName('競馬');
-  if (calendars.length > 0) {
-    calendar = calendars[0];
-  } else {
-    console.log("エラー: 『競馬』 という名前のカレンダーが見つかりません。");
+function findExistingEvent(cal, title, start, end) {
+  var events = cal.getEvents(start, end);
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].getTitle() === title) {
+      return events[i];
+    }
+  }
+  return null;
+}
+
+function createRaceEvent(cal, race) {
+  var d = parseDate(race.date);
+  var start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 15, 10, 0);
+  var end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
+  var title = 'G1 ' + race.name;
+
+  var ev = cal.createEvent(title, start, end, {
+    location: race.venue,
+    description: '2026 JRA G1\n' + race.venue
+  });
+  ev.setColor(COLOR_BASIL);
+  Logger.log('Race: ' + title + ' ' + race.date + ' @ ' + race.venue);
+  return ev;
+}
+
+function createLotteryEvent(cal, race) {
+  var d = parseDate(race.date);
+  var ld = getLotteryDate(d);
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (ld < today) {
+    Logger.log('Lottery skip (past): ' + race.name);
+    return null;
+  }
+  var title = race.name + ' 一般抽選締切';
+  var start = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 10, 0, 0);
+  var end   = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 11, 0, 0);
+
+  var ev = cal.createEvent(title, start, end, {
+    description: race.name + ' 一般抽選\nRace: ' + race.date + '\n' + race.venue
+  });
+  ev.setColor(COLOR_BASIL);
+  Logger.log('Lottery: ' + title + ' ' + Utilities.formatDate(ld, 'Asia/Tokyo', 'yyyy-MM-dd'));
+  return ev;
+}
+
+function registerG1Races() {
+  var cal = CalendarApp.getCalendarById(CALENDAR_ID);
+  if (!cal) {
+    Logger.log('ERROR: Calendar not found: ' + CALENDAR_ID);
     return;
   }
-  const startTime = new Date('2026/03/01');
-  const endTime = new Date('2026/12/31');
+  Logger.log('=== 2026 JRA G1 Registration Start ===');
+  var races = getG1Races2026();
+  var rc = 0, sc = 0, lc = 0;
 
-  // 削除対象のキーワードリスト
-  const keywords = ['[一般抽選]', '[競馬G1]', '[先行抽選]'];
+  for (var i = 0; i < races.length; i++) {
+    var race = races[i];
+    var d = parseDate(race.date);
+    var start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 15, 10, 0);
+    var end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
+    var rTitle = 'G1 ' + race.name;
 
-  keywords.forEach(keyword => {
-    const events = calendar.getEvents(startTime, endTime, { search: keyword });
-    events.forEach(event => {
-      // 念のため、タイトルにキーワードが含まれているか再確認して削除
-      if (event.getTitle().includes(keyword)) {
-        console.log('削除中: ' + event.getTitle());
-        event.deleteEvent();
-      }
-    });
-  });
-  console.log('競馬関連の古い予定の削除が完了しました。');
+    if (findExistingEvent(cal, rTitle, start, end)) {
+      Logger.log('Skip (exists): ' + rTitle);
+      sc++;
+    } else {
+      createRaceEvent(cal, race);
+      rc++;
+    }
+
+    var ld = getLotteryDate(d);
+    var ls = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 10, 0, 0);
+    var le = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 11, 0, 0);
+    var lTitle = race.name + ' 一般抽選締切';
+
+    if (findExistingEvent(cal, lTitle, ls, le)) {
+      Logger.log('Skip (lottery exists): ' + lTitle);
+    } else {
+      if (createLotteryEvent(cal, race)) lc++;
+    }
+  }
+
+  Logger.log('=== Done: Races=' + rc + ' Skipped=' + sc + ' Lottery=' + lc + ' ===');
+}
+
+function deleteAllG1Events() {
+  var cal = CalendarApp.getCalendarById(CALENDAR_ID);
+  if (!cal) { Logger.log('Calendar not found'); return; }
+  var events = cal.getEvents(new Date(2026, 0, 1), new Date(2027, 0, 1));
+  var del = 0;
+  for (var i = 0; i < events.length; i++) {
+    var t = events[i].getTitle();
+    if (t.indexOf('G1 ') === 0 || t.indexOf('一般抽選') > -1) {
+      events[i].deleteEvent();
+      del++;
+      Logger.log('Deleted: ' + t);
+    }
+  }
+  Logger.log('Total deleted: ' + del);
 }
