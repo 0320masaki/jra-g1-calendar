@@ -1,6 +1,6 @@
 /**
  * 2026 JRA G1 Schedule -> Google Calendar
- * Start: 15:10 / Color: Basil (10) / Lottery: 1 week prior Sunday
+ * Start: 15:10 / Color: Basil (10) / Lottery: Tue 18:00 - Thu 13:00 (1 week prior)
  */
 
 var CALENDAR_ID = 'de5893d84b93f0ff8895765e3a714793e664c94b376c452bea62a04d807f429d@group.calendar.google.com';
@@ -40,14 +40,29 @@ function parseDate(dateStr) {
   return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
 }
 
-function getLotteryDate(raceDate) {
-  var d = new Date(raceDate.getTime());
-  d.setDate(d.getDate() - 7);
-  var day = d.getDay();
-  if (day !== 0) {
-    d.setDate(d.getDate() - day);
+/**
+ * getLotterySchedule: raceDate から前週の火曜・木曜を特定
+ * @param {Date} raceDate
+ * @return {{ start: Date, end: Date }} 火曜 18:00 〜 木曜 13:00
+ */
+function getLotterySchedule(raceDate) {
+  // レース日から過去方向に探索し、前週の木曜日を見つける
+  var thu = new Date(raceDate.getTime());
+  thu.setDate(thu.getDate() - 1); // レース当日を除外
+  while (thu.getDay() !== 4) {    // 4 = Thursday
+    thu.setDate(thu.getDate() - 1);
   }
-  return d;
+  // その木曜の2日前 = 火曜日
+  var tue = new Date(thu.getTime());
+  tue.setDate(tue.getDate() - 2);
+  // 安全確認: whileループで火曜を再確認
+  while (tue.getDay() !== 2) {    // 2 = Tuesday
+    tue.setDate(tue.getDate() - 1);
+  }
+
+  var start = new Date(tue.getFullYear(), tue.getMonth(), tue.getDate(), 18, 0, 0);
+  var end   = new Date(thu.getFullYear(), thu.getMonth(), thu.getDate(), 13, 0, 0);
+  return { start: start, end: end };
 }
 
 function findExistingEvent(cal, title, start, end) {
@@ -77,22 +92,26 @@ function createRaceEvent(cal, race) {
 
 function createLotteryEvent(cal, race) {
   var d = parseDate(race.date);
-  var ld = getLotteryDate(d);
+  var sched = getLotterySchedule(d);
   var today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (ld < today) {
+  if (sched.end < today) {
     Logger.log('Lottery skip (past): ' + race.name);
     return null;
   }
-  var title = race.name + ' 一般抽選締切';
-  var start = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 10, 0, 0);
-  var end   = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 11, 0, 0);
+  var title = '\uD83C\uDFAB ' + race.name + ' \u4e00\u822c\u62bd\u9078 (\u6728\u66DC13\u6642\u7de0\u5207)';
+  var startStr = Utilities.formatDate(sched.start, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+  var endStr   = Utilities.formatDate(sched.end,   'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
 
-  var ev = cal.createEvent(title, start, end, {
-    description: race.name + ' 一般抽選\nRace: ' + race.date + '\n' + race.venue
+  var ev = cal.createEvent(title, sched.start, sched.end, {
+    location: race.venue,
+    description: race.name + ' \u4e00\u822c\u62bd\u9078\n'
+      + '\u7533\u8fbc\u958b\u59cb: ' + startStr + '\n'
+      + '\u7de0\u5207: ' + endStr + '\n'
+      + '\u30ec\u30fc\u30b9\u65e5: ' + race.date + '\n'
+      + '\u4f1a\u5834: ' + race.venue
   });
   ev.setColor(COLOR_BASIL);
-  Logger.log('Lottery: ' + title + ' ' + Utilities.formatDate(ld, 'Asia/Tokyo', 'yyyy-MM-dd'));
+  Logger.log('Lottery: ' + title + ' ' + startStr + ' ~ ' + endStr);
   return ev;
 }
 
@@ -121,12 +140,10 @@ function registerG1Races() {
       rc++;
     }
 
-    var ld = getLotteryDate(d);
-    var ls = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 10, 0, 0);
-    var le = new Date(ld.getFullYear(), ld.getMonth(), ld.getDate(), 11, 0, 0);
-    var lTitle = race.name + ' 一般抽選締切';
+    var sched = getLotterySchedule(d);
+    var lTitle = '\uD83C\uDFAB ' + race.name + ' \u4e00\u822c\u62bd\u9078 (\u6728\u66DC13\u6642\u7de0\u5207)';
 
-    if (findExistingEvent(cal, lTitle, ls, le)) {
+    if (findExistingEvent(cal, lTitle, sched.start, sched.end)) {
       Logger.log('Skip (lottery exists): ' + lTitle);
     } else {
       if (createLotteryEvent(cal, race)) lc++;
