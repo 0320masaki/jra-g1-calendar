@@ -46,22 +46,25 @@ function parseDate(dateStr) {
  * @return {{ start: Date, end: Date }} 火曜 18:00 〜 木曜 13:00
  */
 function getLotterySchedule(raceDate) {
-  // レース日から過去方向に探索し、前週の木曜日を見つける
-  var thu = new Date(raceDate.getTime());
-  thu.setDate(thu.getDate() - 1); // レース当日を除外
+  // レース日の7日前を基準点にする（これで確実に「前週」の探索になる）
+  var baseDate = new Date(raceDate.getTime());
+  baseDate.setDate(baseDate.getDate() - 7);
+
+  // 基準日（前週の日曜）から遡って、その週の木曜日を見つける
+  var thu = new Date(baseDate.getTime());
   while (thu.getDay() !== 4) {    // 4 = Thursday
     thu.setDate(thu.getDate() - 1);
   }
+
   // その木曜の2日前 = 火曜日
   var tue = new Date(thu.getTime());
-  tue.setDate(tue.getDate() - 2);
-  // 安全確認: whileループで火曜を再確認
+  tue.setDate(tue.getDate() - 2);  // 安全確認: whileループで火曜を再確認
   while (tue.getDay() !== 2) {    // 2 = Tuesday
     tue.setDate(tue.getDate() - 1);
   }
 
   var start = new Date(tue.getFullYear(), tue.getMonth(), tue.getDate(), 18, 0, 0);
-  var end   = new Date(thu.getFullYear(), thu.getMonth(), thu.getDate(), 13, 0, 0);
+  var end = new Date(thu.getFullYear(), thu.getMonth(), thu.getDate(), 13, 0, 0);
   return { start: start, end: end };
 }
 
@@ -78,7 +81,7 @@ function findExistingEvent(cal, title, start, end) {
 function createRaceEvent(cal, race) {
   var d = parseDate(race.date);
   var start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 15, 10, 0);
-  var end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
+  var end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
   var title = 'G1 ' + race.name;
 
   var ev = cal.createEvent(title, start, end, {
@@ -100,7 +103,7 @@ function createLotteryEvent(cal, race) {
   }
   var title = '\uD83C\uDFAB ' + race.name + ' \u4e00\u822c\u62bd\u9078 (\u6728\u66DC13\u6642\u7de0\u5207)';
   var startStr = Utilities.formatDate(sched.start, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-  var endStr   = Utilities.formatDate(sched.end,   'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+  var endStr = Utilities.formatDate(sched.end, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
 
   var ev = cal.createEvent(title, sched.start, sched.end, {
     location: race.venue,
@@ -129,7 +132,7 @@ function registerG1Races() {
     var race = races[i];
     var d = parseDate(race.date);
     var start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 15, 10, 0);
-    var end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
+    var end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16, 0, 0);
     var rTitle = 'G1 ' + race.name;
 
     if (findExistingEvent(cal, rTitle, start, end)) {
